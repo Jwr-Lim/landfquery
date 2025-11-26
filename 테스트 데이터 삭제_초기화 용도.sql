@@ -1,0 +1,78 @@
+-- 삭제 트리거
+
+BEGIN TRAN 
+
+declare @order_tbl table 
+(
+    order_no nvarchar(50) 
+)
+
+insert into @order_tbl 
+select 'PD250929011'
+union all 
+select 'PD250929012'
+
+-- MT_ITEM_OUT_BATCH 정리
+
+UPDATE C SET C.USE_QTY = 0, C.USE_FLG = 'Y' 
+FROM MT_ITEM_OUT_BATCH C 
+WHERE C.REQ_DT = '2025-11'
+
+
+UPDATE C SET C.USE_QTY = 0, C.USE_FLG = 'Y' 
+FROM PD_RESULT A WITH (NOLOCK) 
+INNER JOIN PD_USEM B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD 
+AND A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD 
+AND A.PROC_CD = B.PROC_CD AND A.RESULT_SEQ = B.RESULT_SEQ 
+INNER JOIN MT_ITEM_OUT_BATCH C WITH (NOLOCK) ON B.REQ_NO = C.REQ_NO 
+WHERE A.ORDER_NO in (select *from @order_tbl)
+-- PD_RESULT_PROC_SPEC_VALUE 삭제
+
+DELETE A FROM PD_RESULT_PROC_SPEC_VALUE A
+WHERE A.ORDER_NO in (select *from @order_tbl)
+
+-- PD_USEM 삭제 
+DELETE A FROM PD_USEM A
+WHERE A.ORDER_NO in (select *from @order_tbl)
+
+-- PD_RESULT 삭제
+DELETE A FROM PD_RESULT A WITH (NOLOCK) 
+WHERE A.ORDER_NO in (select *from @order_tbl) 
+and A.INSERT_DT > '2025-11-17 13:02:56.230'
+
+DELETE A FROM PD_ITEM_IN A WITH (NOLOCK) 
+WHERE A.ORDER_NO in (select *from @order_tbl) 
+and A.INSERT_DT > '2025-11-17 13:02:56.230'
+
+-- PD_USEM TEMP 삭제
+
+UPDATE A SET A.USE_FLG = 'Y' FROM MT_ITEM_OUT_BATCH A WHERE A.ORDEr_NO = 'PD250929011' 
+AND  A.USE_FLG = 'S'
+DELETE PD_USEM_MAT_TEMP 
+DELETE PD_USEM_MAT_TEMP_MASTER
+DELETE PD_MDM_RESULT_MASTER
+/*
+UPDATE A SET A.END_DT = NULL 
+FROM PD_MDM_RESULT_PROC_SPEC A WITH (NOLOCK) 
+*/
+DELETE PD_MDM_RESULT_PROC_SPEC
+DELETE PD_MDM_WORK_SEND 
+DELETE PD_MDM_RESULT_GROUP
+
+DELETE flexapi_new.dbo.ifm705_master where act_type = 'j'
+
+select *from pd_result a where a.order_no in (select *from @order_tbl)
+select *from pd_item_in a where a.order_no in (select *from @order_tbl)
+
+
+ROLLBACK 
+
+
+
+--SELECT *FROM PD_MDM_WORK_SEND 
+
+--SELECT *FROM PD_MDM_RESULT_PROC_SPEC
+
+
+--select *from PD_MDM_RESULT_MASTER 
+

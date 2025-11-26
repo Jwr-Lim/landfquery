@@ -1,0 +1,546 @@
+ALTER PROC USP_MDM_PROD_INFO_QUERY
+    (
+     @INBOUNDID     BIGINT 
+    ,@MSG_CD       NVARCHAR(4)   OUTPUT 
+    ,@MSG_DETAIL   NVARCHAR(MAX) OUTPUT
+)
+AS 
+
+SET NOCOUNT ON 
+BEGIN TRY
+IF OBJECT_ID('tempdb..#IFM705_MASTER') IS NOT NULL DROP TABLE #IFM705_MASTER;
+IF OBJECT_ID('tempdb..#MDM_LOOP_TABLE') IS NOT NULL DROP TABLE #MDM_LOOP_TABLE;
+
+/*
+원료 투입 1222
+원료 투입 종료 1223
+계량 시작 1262, 63
+1266
+*/
+DECLARE --@INBOUNDID INT = 1263--1262--1223 -- 1223 
+        @SQL       NVARCHAR(MAX) = ''
+       ,@PARAM     NVARCHAR(MAX) = ''
+       ,@DIV_CD    NVARCHAR(10)  = ''
+       ,@PLANT_CD  NVARCHAR(10)  = ''
+       ,@ITEM_CD   NVARCHAR(50)  = ''
+select *
+into #IFM705_MASTER
+from FlexAPI_NEW.dbo.ifm705_master A WITH (NOLOCK)
+WHERE InboundId_ApiAutoCreate = @INBOUNDID
+
+--UPDATE A SET A.PROC_CD = 'SE'
+-- FROM #IFM705_MASTER A WHERE A.PROC_CD = 'RB' 
+
+CREATE TABLE #MDM_LOOP_TABLE
+(
+    DIV_CD     NVARCHAR(10),
+    PLANT_CD   NVARCHAR(10),
+    PD_AUTO_NO NVARCHAR(50),
+    AUTO_NO    NVARCHAR(50),
+    SEQ        INT,
+    ORDER_NO   NVARCHAR(100),
+    WC_CD      NVARCHAR(50),
+    LINE_CD    NVARCHAR(50),
+    PROC_CD    NVARCHAR(50),
+    EQP_CD     NVARCHAR(50),
+    MCASE      NVARCHAR(200),
+    CODE       NVARCHAR(200),
+    CODE_NM    NVARCHAR(500),
+    FLAG       NVARCHAR(10),
+    COL_CHK    NVARCHAR(10),
+    TAG_ID     NVARCHAR(1000) NULL,
+    VALUE      NVARCHAR(1000) NULL,
+    ROTATION   INT NULL, 
+    GROUP_CHK  NVARCHAR(1) NULL, 
+    OUT_CHK    NVARCHAR(1) NULL
+);
+
+DECLARE @CASE    NVARCHAR(50) = '' 
+       ,@CNT     INT = 0
+       ,@TCNT    INT = 0
+       ,@COL_ID  NVARCHAR(50) = ''
+       ,@FLAG    NVARCHAR(10) = ''
+       ,@COL_CHK NVARCHAR(10) = ''
+
+DECLARE 
+        @PD_AUTO_NO NVARCHAR(50) = ''
+       ,@AUTO_NO  NVARCHAR(50) = ''
+       ,@STR_DATE NVARCHAR(8) = ''
+       ,@LOT_NO   NVARCHAR(50) = ''  
+
+
+SET @STR_DATE = CONVERT(NVARCHAR(8), GETDATE(), 112)
+
+SET @CASE = (SELECT [CASE]
+FROM #IFM705_MASTER)
+
+--SELECT *FROM #IFM705_MASTER -- CHK
+
+IF @CASE LIKE '%원료투입 시작' OR @CASE LIKE '%원료투입 종료'
+BEGIN
+    -- 원료 투입 시작일 경우 
+
+    -- PD_MDM_WORK_SEND 하고 비교해서 각 값을 가지고 와서 ROW 형태로 나열
+    INSERT INTO #MDM_LOOP_TABLE
+    SELECT D.DIV_CD, D.PLANT_CD, A.PD_AUTO_NO, B.AUTO_NO, C.SEQ, A.ORDER_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, A.EQP_CD, C.MCASE, C.CODE, C.CODE_NM, C.FLAG, C.COL_CHK,
+        CAST('' AS NVARCHAR(1000)) AS TAG_ID,
+        CAST('' AS NVARCHAR(1000)) AS VALUE,
+        1,'N','Y'
+    --  INTO #MDM_LOOP_TABLE 
+    FROM PD_MDM_WORK_SEND A 
+        INNER JOIN #IFM705_MASTER B ON A.AUTO_NO = B.AUTO_NO
+        INNER JOIN PD_MDM_BASE_CODE C ON B.[CASE] = C.MCASE
+        INNER JOIN PD_ORDER D ON A.ORDER_NO = D.ORDER_NO
+    ORDER BY C.SEQ
+
+   
+    UPDATE A SET A.DIV_CD = C.DIV_CD, A.PLANT_CD = C.PLANT_CD, A.PD_AUTO_NO = B.PD_AUTO_NO, A.AUTO_NO = B.AUTO_NO, A.ORDER_NO = B.ORDER_NO, A.WC_CD = B.WC_CD, A.PLAN_SEQ = B.RESULT_SEQ, A.LOT_NO = B.LOT_NO
+        from FlexAPI_NEW.dbo.ifm705_master A 
+        INNER JOIN PD_MDM_WORK_SEND B ON A.AUTO_NO = B.AUTO_NO
+        INNER JOIN PD_ORDER C ON B.ORDER_NO = C.ORDER_NO 
+    WHERE InboundId_ApiAutoCreate = @INBOUNDID
+
+END     
+ELSE 
+BEGIN
+    DECLARE @WC_CD   NVARCHAR(50) = ''
+           ,@LINE_CD NVARCHAR(50) = ''
+           ,@PROC_CD NVARCHAR(50) = ''
+           ,@EQP_CD  NVARCHAR(50) = ''
+
+    SELECT @WC_CD = B.WC_CD, @LINE_CD = B.LINE_CD, @PROC_CD = A.PROC_CD, @EQP_CD = A.EQP_cD
+    FROM #IFM705_MASTER A WITH (NOLOCK)
+        INNER JOIN BA_LINE B WITH (NOLOCK) ON A.LINE_CD = B.LINE_CD
+    
+    DECLARE @ORDER_NO   NVARCHAR(50) 
+           ,@REVISION   INT 
+           ,@RESULT_SEQ INT 
+           ,@MN_S       NVARCHAR(1)
+           
+    SELECT @MN_S = ISNULL(A.MN_S,'N')
+    FROM BA_EQP A WITH (NOLOCK)
+    WHERE A.EQP_cD = @EQP_CD AND A.PROC_CD = @PROC_CD
+
+    -- 그룹 공정체크 진행 먼저 체크 해서 진행한다. 
+
+    IF EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A  
+    WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL
+    )
+    BEGIN
+        -- 종료 된게 없으면 지금 걸려 있는거니, 
+        -- 확인을 하자 
+        -- 설비에 @TP 정보를 가지고 와서 앞에 있다면? 
+        -- 재공 설비를 체크해서 넣는다. 
+        -- 앞단을 봐야 된다. 
+        DECLARE @TP        NVARCHAR(10) = '' 
+               ,@BE_EQP_CD NVARCHAR(50) = ''
+
+
+
+        
+        SET @PD_AUTO_NO = ISNULL((SELECT A.PD_AUTO_NO FROM PD_MDM_RESULT_GROUP A WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD 
+        AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL),'')
+
+        
+        IF EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP WHERE WC_CD = @WC_CD AND LINE_CD = @LINE_CD AND PROC_CD = @PROC_CD AND EDATE IS NULL AND BE_EQP_CD IS NULL)
+        BEGIN
+            SET @TP = ISNULL((SELECT A.TP FROM BA_EQP A WITH (NOLOCK) 
+            WHERE A.EQP_CD = @EQP_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD),'') 
+
+            IF @TP <> '' 
+            BEGIN 
+                -- 일단 이전 공정 순서를 찾고 난다음 재공 설비 코드를 확인한다. 
+                SET @BE_EQP_CD = ISNULL((SELECT TOP 1 E.EQP_CD
+                FROM PD_MDM_RESULT_GROUP A 
+                INNER JOIN PD_ORDER_PROC B ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO 
+                AND A.REVISION = B.REVISION AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD AND A.PROC_CD = B.PROC_CD 
+                INNER JOIN PD_ORDER_PROC C ON B.DIV_CD = C.DIV_CD AND B.PLANT_CD = C.PLANT_CD AND B.ORDER_NO = C.ORDER_NO 
+                AND B.REVISION = C.REVISION AND B.WC_CD = C.WC_CD AND B.LINE_CD = C.LINE_CD AND B.GROUP_SEQ > C.GROUP_SEQ AND C.OUT_CHK = 'Y'
+                INNER JOIN PD_ORDER_PROC_SPEC_V2 D ON C.DIV_CD = D.DIV_CD AND C.PLANT_CD = D.PLANT_CD AND C.ORDER_NO = D.ORDER_NO AND C.REVISION = D.REVISION 
+                AND C.ORDER_TYPE = D.ORDER_TYPE AND C.ORDER_FORM = D.ORDER_FORM AND C.ROUT_NO = D.ROUT_NO AND C.ROUT_VER = D.ROUT_VER 
+                AND C.WC_CD = D.WC_CD AND C.LINE_CD = D.LINE_CD AND C.PROC_CD = D.PROC_CD 
+
+                AND D.InboundId_ApiAutoCreate = (SELECT MAX(InboundId_ApiAutoCreate) FROM PD_ORDER_PROC_SPEC_V2 
+                
+                WHERE DIV_CD = A.DIV_CD AND PLANT_CD = A.PLANT_CD AND ORDER_NO = A.ORDER_NO AND REVISION = A.REVISION)
+ 
+                INNER JOIN BA_EQP E ON D.DIV_CD = E.DIV_CD AND D.WC_CD = E.WC_CD AND D.LINE_CD = E.LINE_CD AND D.PROC_CD = E.PROC_CD AND D.EQP_CD = E.EQP_CD AND E.TP = @TP
+                WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL
+                ORDER BY C.GROUP_SEQ DESC),'') 
+
+                UPDATE A SET A.BE_EQP_CD = @BE_EQP_CD 
+                    FROM PD_MDM_RESULT_GROUP A
+                WHERE A.PD_AUTO_NO = @PD_AUTO_NO
+            END 
+            -- 종료안된게 있으면, PD_MDM_RESULT_MASTER 에 넣어준다. 
+        END         
+
+        IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK) 
+        WHERE A.WC_CD = @WC_CD AND A.LINE_CD= @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = @EQP_CD AND A.EDATE IS NULL)
+        BEGIN
+            -- 신규로 만들어준다. 
+            EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'ADMIN', @AUTO_NO OUT
+            
+            INSERT PD_MDM_RESULT_MASTER
+            (
+            PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
+            RESULT_SEQ,
+            EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
+            UPDATE_ID, UPDATE_DT
+            )
+            
+            SELECT A.PD_AUTO_NO, @AUTO_NO, A.ORDER_NO, A.REVISION, B.PROC_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, 
+            A.RESULT_SEQ,
+            @EQP_CD,  C.ITEM_CD, '', GETDATE(), NULL, 'ADMIN',GETDATE(),'ADMIN',GETDATE()
+            
+            FROM PD_MDM_RESULT_GROUP A
+            INNER JOIN PD_ORDER_PROC B ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION 
+            AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD AND A.PROC_CD = B.PROC_CD 
+            INNER JOIN PD_ORDER C ON B.DIV_CD = C.DIV_CD AND B.PLANT_CD = C.PLANT_CD AND B.ORDER_NO = C.ORDER_NO AND B.REVISION = C.REVISION 
+            AND B.WC_CD = C.WC_CD AND B.LINE_CD = C.LINE_CD 
+            WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.PROC_CD = @PROC_CD 
+
+            -- CNT 를 한번씩 다 올린다. 실적이 있는지 확인하고...
+            IF EXISTS(SELECT B.*
+            FROM PD_MDM_RESULT_GROUP A
+            INNER JOIN PD_RESULT B ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION 
+            AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD AND A.PROC_CD = B.PROC_CD AND A.RESULT_SEQ = B.RESULT_SEQ AND B.EDATE IS NULL 
+            WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.PROC_CD = @PROC_CD 
+            )
+            BEGIN
+                UPDATE A SET A.CYCLE = A.CYCLE + 1
+                    FROM PD_MDM_RESULT_GROUP A
+                WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.PROC_CD = @PROC_CD 
+            END 
+        END
+
+    END 
+    -- 시작 설비이면 구분이 필요하다. 
+
+    IF EXISTS(SELECT *
+    FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
+    WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = CASE WHEN @MN_S IN ('Y','E') THEN @EQP_CD ELSE A.EQP_CD END
+        AND A.EDATE IS NULL 
+    )
+    BEGIN
+
+        IF NOT EXISTS(SELECT *
+        FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
+        WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = @EQP_CD
+        AND A.EDATE IS NULL)
+        BEGIN
+
+            EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'ADMIN', @AUTO_NO OUT
+
+            INSERT PD_MDM_RESULT_MASTER
+            (
+            PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
+            RESULT_SEQ,
+            EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
+            UPDATE_ID, UPDATE_DT
+            )
+            SELECT TOP 1 
+            A.PD_AUTO_NO, @AUTO_NO, A.ORDER_NO, A.REVISION, A.PROC_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, A.RESULT_SEQ,
+            @EQP_CD, '', '', GETDATE(), NULL, 'ADMIN', GETDATE(),
+            'ADMIN', GETDATE()
+            FROM PD_MDM_RESULT_MASTER A
+            WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD <> @EQP_CD AND A.EDATE IS NULL 
+
+        END
+        
+        SELECT @PD_AUTO_NO = A.PD_AUTO_NO, @AUTO_NO = A.AUTO_NO, @ORDER_NO = A.ORDER_NO, @REVISION = A.REVISION, @WC_CD = A.WC_CD, @LINE_CD = A.LINE_CD, @PROC_CD = A.PROC_CD,
+        @RESULT_SEQ = A.RESULT_SEQ
+        FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
+        WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_cD AND A.EQP_CD = @EQP_CD
+        AND A.EDATE IS NULL
+
+
+        -- 현재 LOT 를 파악 한다. 
+
+        SELECT @LOT_NO = B.LOT_NO
+        FROM PD_MDM_RESULT_MASTER A
+        INNER JOIN PD_RESULT B ON A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD
+            AND A.PROC_CD = B.PROC_CD AND A.PD_AUTO_NO = B.REMARK
+        WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_cD AND A.EQP_CD = @EQP_CD
+        AND A.EDATE IS NULL
+
+
+    /*
+        
+        -- PD_MDM_BASE_CODE 에 없으면?
+        IF NOT EXISTS(SELECT *FROM #IFM705_MASTER A 
+        INNER JOIN PD_MDM_BASE_CODE B ON A.[CASE] = B.MCASE 
+        )
+        BEGIN
+            -- 여기서 AUTO_NO 를 UPDATE 하고 나머지를 
+            EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'admin', @AUTO_NO OUT
+
+            UPDATE A SET A.AUTO_NO = @AUTO_NO
+                FROM PD_MDM_RESULT_MASTER A
+            WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = CASE WHEN @MN_S IN ('Y','E') THEN @EQP_CD ELSE A.EQP_CD END
+            AND A.EDATE IS NULL
+
+        END
+        ELSE 
+        BEGIN
+
+            IF @MN_S NOT IN ('Y','E')
+            BEGIN
+--                SELECT @EQP_CD 
+                IF NOT EXISTS(SELECT *FROM 
+                PD_MDM_RESULT_MASTER A WITH (NOLOCK) 
+                WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = @EQP_CD AND A.EDATE IS NULL
+                )
+                BEGIN
+                    -- 테이블을 따로 두지 않고 PD_MDM_RESULT_MASTER 를 활용하면 어떻게 되는가? 
+                    -- INSERT 해보자. 
+            
+                    EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'ADMIN', @AUTO_NO OUT
+
+                    INSERT PD_MDM_RESULT_MASTER
+                    (
+                    PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
+                    RESULT_SEQ,
+                    EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
+                    UPDATE_ID, UPDATE_DT
+                    )
+                    SELECT TOP 1 
+                    A.PD_AUTO_NO, @AUTO_NO, A.ORDER_NO, A.REVISION, A.PROC_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, A.RESULT_SEQ,
+                    @EQP_CD, '', '', GETDATE(), NULL, 'ADMIN', GETDATE(),
+                    'ADMIN', GETDATE()
+                    FROM PD_MDM_RESULT_MASTER A
+                    WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD <> @EQP_CD AND A.EDATE IS NULL 
+
+                END
+            END
+        END
+
+        */
+    
+        -- AUTO_NO 를 다시 생성해서 넣는다. 
+
+        --PD_MDM_RESULT_MASTER 에도 없데이트를 한다. 
+
+    END 
+    ELSE 
+    BEGIN
+        
+        EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'admin', @AUTO_NO OUT
+
+        -- RK 165
+        -- VALUE 가 문제이긴 하다.. 이걸 어떻게 해야 되는가.. 
+        SET @PD_AUTO_NO = 'PD' + CAST(@AUTO_NO AS NVARCHAR)
+        DECLARE @WET NUMERIC(18,3) = 0
+        IF @PROC_CD = 'RK'
+        BEGIN
+            SET @WET = 165
+        END 
+        ELSE 
+        BEGIN
+            SET @WET = 3000
+        END
+
+        DECLARE @O_VALUE INT = 0
+        EXEC @O_VALUE = USP_MDM_WORK_ORDER_CREATE 
+        @DIV_CD = '01', @PLANT_CD = '1130', @WC_CD = @WC_CD, @LINE_CD = @LINE_CD, @PROC_CD = @PROC_CD,
+        @EQP_CD = @EQP_CD, @VALUE = @WET, @ORDER_NO = @ORDER_NO OUTPUT, @REVISION = @REVISION OUTPUT, 
+        @RESULT_SEQ = @RESULT_SEQ OUTPUT
+
+        print 'order match param : ' + @wc_cd + ',' + @line_cd + ',' + @proc_cd + ',' + @eqp_cd
+
+--        select @o_value 
+        IF @O_VALUE = 1 
+        BEGIN
+            SET @MSG_CD = '9999'
+            SET @MSG_DETAIL = 'ORDER MATCH ERROR.. USP_MDM_WORK_ORDER_CREATE'
+            RETURN 1
+        END
+
+        -- 여기서 따로 담아야 된다.. @PROC_NO 를 구하자.
+        --SELECT @AUTO_NO, @ORDER_NO, @WC_CD, @PROC_CD, @RESULT_SEQ, @LOT_NO
+        DECLARE @PROC_NO NVARCHAR(50) = ''
+
+        SELECT @PROC_NO = A.PROC_NO
+        FROM PD_ORDER A WITH (NOLOCK)
+        WHERE A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION
+
+        EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'admin', @AUTO_NO OUT
+
+        SET @PD_AUTO_NO = 'PD' + CAST(@AUTO_NO AS NVARCHAR)
+
+        INSERT PD_MDM_RESULT_MASTER
+        (
+        PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
+        RESULT_SEQ,
+        EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
+        UPDATE_ID, UPDATE_DT
+        )
+        SELECT
+            @PD_AUTO_NO, @AUTO_NO, @ORDER_NO, @REVISION, @PROC_NO, @WC_CD, @LINE_CD, @PROC_CD,
+            @RESULT_SEQ,
+            @EQP_CD, '', '', GETDATE(), NULL, 'admin', GETDATE(),
+            'admin', GETDATE()
+
+    END
+
+--        SELECT @AUTO_NO, @ORDER_NO, @WC_CD, @PROC_CD, @RESULT_SEQ, @LOT_NO
+
+    UPDATE A SET A.DIV_CD = B.DIV_CD, A.PLANT_CD = B.PLANT_CD, A.PD_AUTO_NO = @PD_AUTO_NO, A.AUTO_NO = @AUTO_NO, A.ORDER_NO = @ORDER_NO, A.WC_CD = @WC_CD, A.PLAN_SEQ = @RESULT_SEQ, A.LOT_NO = @LOT_NO 
+        from FlexAPI_NEW.dbo.ifm705_master A 
+        INNER JOIN PD_ORDER B ON 1=1 AND B.ORDER_NO = @ORDER_NO
+    WHERE InboundId_ApiAutoCreate = @INBOUNDID
+
+    DECLARE @GROUP_S NVARCHAR(1) = ''
+           ,@GROUP_E NVARCHAR(1) = ''
+           ,@OUT_CHK NVARCHAR(1) = '' 
+
+    SELECT @GROUP_S = ISNULL(A.GROUP_S,'N'), @GROUP_E = ISNULL(A.GROUP_E,'N'), 
+    @OUT_CHK = ISNULL(A.OUT_CHK,'N'), @DIV_CD = A.DIV_CD, @PLANT_CD = A.PLANT_CD 
+    FROM PD_ORDER_PROC A WITH (NOLOCK) 
+    WHERE A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD 
+    
+--    select @group_s, @group_e, @out_chk 
+
+    INSERT INTO #MDM_LOOP_TABLE
+    SELECT D.DIV_CD, D.PLANT_CD, @PD_AUTO_NO, @AUTO_NO, C.SEQ, @ORDER_NO, @WC_CD, @LINE_CD, @PROC_CD, A.EQP_CD, C.MCASE, C.CODE, C.CODE_NM, C.FLAG, C.COL_CHK,
+        CAST('' AS NVARCHAR(1000)) AS TAG_ID,
+        CAST('' AS NVARCHAR(1000)) AS VALUE,
+        A.PACK_CNT, -- 나중에 다른 회차가 있으면 체인지 해야 된다.
+        CASE WHEN @GROUP_S = 'N' AND @GROUP_E = 'Y' THEN 'E'
+             WHEN @GROUP_S = 'Y' AND @GROUP_E = 'N' THEN 'S' 
+         ELSE ''
+         END,
+        @OUT_CHK
+    --  INTO #MDM_LOOP_TABLE 
+    FROM #IFM705_MASTER A
+        INNER JOIN PD_MDM_BASE_CODE C ON A.[CASE] = C.MCASE
+        INNER JOIN PD_ORDER D ON 1=1 AND D.ORDER_NO = @ORDER_NO
+    ORDER BY C.SEQ
+
+    --해당 공정이 그룹공정이고, 
+          
+    IF EXISTS(SELECT *FROM DBO.FN_GET_GROUP_PROC_TBL(@DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @LINE_CD, @PROC_CD) WHERE PROC_CD = @PROC_CD)
+    BEGIN 
+
+        IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A
+        WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.WC_CD = @WC_CD 
+        AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.RESULT_SEQ = @RESULT_SEQ 
+        AND A.EDATE IS NULL
+        )
+        BEGIN 
+            -- 회차 정보를 가지고 온다. 몇회차 까지 있는가?
+            DECLARE @CYCLE_SEQ  INT = 0
+
+            SET @CYCLE_SEQ = ISNULL((SELECT B.PALLET_QTY / B.SNP_QTY FROM PD_ORDER A WITH (NOLOCK) 
+            INNER JOIN V_ITEM B WITH (NOLOCK) ON A.PLANT_CD = B.PLANT_CD AND A.ITEM_CD = B.ITEM_CD 
+            WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION),1)
+            
+            --SELECT '1'
+            -- 추후에 PRE-BARE, BARE 같은 그룹이 묶여져 있으면 문제가 될수 있음. 지시번호가 다르기때문에.. 이럴경우는 PD_ORDER_PROC 을 엮어서 조회 구문을 다시 지정 해야 될것 같다.
+            -- 지금 하자... 
+            -- 그리고 리본 믹서 체크 구분이 포장때 들어오면 제일 좋은데 이부분을 확인해봐야 된다. 
+
+            INSERT INTO PD_MDM_RESULT_GROUP (
+                PD_AUTO_NO,
+                SEQ, DIV_CD, PLANT_CD, ORDER_NO, REVISION, WC_CD, LINE_CD, PROC_CD, RESULT_SEQ, SDATE, EDATE, CYCLE, CYCLE_SEQ
+            )
+            SELECT 
+                @PD_AUTO_NO, 
+                A.CNT, @DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @WC_CD, @LINE_CD, A.PROC_CD, @RESULT_SEQ, GETDATE(), NULL, 1, @CYCLE_SEQ
+            FROM DBO.FN_GET_GROUP_PROC_TBL(@DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @LINE_CD, @PROC_CD) A 
+            
+/*            
+            SELECT @PD_AUTO_NO, C.CNT, A.PROC_CD = @PROC_CD THEN 
+                FROM PD_ORDER_PROC A WITH (NOLOCK) 
+                INNER JOIN PD_ORDER_PROC B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.PROC_NO = B.PROC_NO 
+                INNER JOIN DBO.FN_GET_GROUP_PROC_TBL(@DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @LINE_CD, @PROC_CD) C ON B.PROC_CD = C.PROC_CD 
+            WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD 
+            ORDER BY B.GROUP_SEQ 
+*/
+        END 
+    END 
+    --select *from #MDM_LOOP_TABLE
+END 
+
+--SELECT *FROM #MDM_LOOP_TABLE 
+
+  -- 기존 테이블에 업데이트 진행 예정 
+
+SELECT @TCNT = COUNT(*)
+FROM #MDM_LOOP_TABLE A WITH (NOLOCK)
+
+WHILE @CNT <> @TCNT 
+BEGIN
+    SET @CNT = @CNT + 1
+
+    SELECT @COL_ID = A.CODE, @FLAG = A.FLAG, @COL_CHK = A.COL_CHK
+    FROM #MDM_LOOP_TABLE A WITH (NOLOCK)
+    WHERE A.SEQ = @CNT
+    
+
+    DECLARE @VALUE NVARCHAR(1000) = ''
+    SET @SQL = 'SELECT @VAL = ' +  CASE WHEN @FLAG IN ('SD','ED') THEN 'CONVERT(NVARCHAR(20), CAST(' ELSE '' END 
+    + @COL_ID + CASE WHEN @FLAG IN ('SD','ED') THEN ' AS DATETIME), 120) ' ELSE '' END 
+    + ' FROM #IFM705_MASTER'
+    SET @PARAM = '@VAL NVARCHAR(1000) OUTPUT '
+
+    PRINT @SQL
+
+    EXEC SP_EXECUTESQL @SQL, @PARAM, @VAL = @VALUE OUTPUT
+
+    UPDATE A SET A.VALUE = @VALUE 
+        FROM #MDM_LOOP_TABLE A 
+    WHERE A.SEQ = @CNT
+
+    -- V 이면 TAG 정보를 하나 더 찾는다. 
+    IF @COL_CHK = 'V' 
+    BEGIN
+
+        SET @SQL = 'SELECT @VAL = ' +  @COL_ID + '_TAG FROM #IFM705_MASTER'
+        SET @PARAM = '@VAL NVARCHAR(1000) OUTPUT '
+
+        PRINT @SQL
+
+        EXEC SP_EXECUTESQL @SQL, @PARAM, @VAL = @VALUE OUTPUT
+
+        UPDATE A SET A.TAG_ID = @VALUE 
+        FROM #MDM_LOOP_TABLE A 
+        WHERE A.SEQ = @CNT
+
+    END
+
+END 
+
+--SELECT *FROM #MDM_LOOP_TABLE A WITH (NOLOCK) -- CHK
+
+INSERT INTO PD_MDM_RESULT_PROC_SPEC
+    (
+    PD_AUTO_NO, AUTO_NO, SEQ, ORDER_NO, WC_CD, LINE_CD, PROC_CD,
+    EQP_CD, TAG_ID, VALUE_STEP, COL_CHK, VALUE, VALUE_STR,
+    ROTATION, REMARK, START_DT, END_DT, INBOUND_ID, GROUP_CHK, OUT_CHK
+    )
+SELECT
+    A.PD_AUTO_NO, A.AUTO_NO, ISNULL((SELECT MAX(SEQ)
+    FROM PD_MDM_RESULT_PROC_SPEC 
+    WHERE PD_AUTO_NO = A.PD_AUTO_NO),0) +  A.SEQ, A.ORDER_NO, A.WC_CD, A.LINE_CD, A.PROC_CD,
+    A.EQP_CD, A.TAG_ID, A.FLAG, A.COL_CHK, CASE WHEN A.COL_CHK = 'V' THEN 
+    
+    CASE WHEN A.EQP_CD IN ('LFG01A-01B-PS-0301','LFG01A-01B-PS-0302','LFG01A-01B-RCV-0401','LFG01A-01B-RCV-0402') AND CAST(A.VALUE AS NUMERIC(18,3)) > 10 THEN CAST(A.VALUE AS NUMERIc(18,3)) * 0.01 
+    ELSE 
+    CAST(A.VALUE AS NUMERIC(18,3)) 
+    END 
+    ELSE 0 END,
+    CASE WHEN A.COL_CHK = 'N' THEN A.VALUE ELSE '' END,
+    A.ROTATION, '', GETDATE(), NULL, @INBOUNDID, A.GROUP_CHK, A.OUT_CHK
+
+FROM #MDM_LOOP_TABLE A 
+
+--SELECT *FROM PD_MDM_RESULT_PROC_SPEC
+--SELECT *FROM PD_MDM_RESULT_MASTER
+
+END TRY 
+BEGIN CATCH 
+    SET @MSG_CD = 9999
+    SET @MSG_DETAIL = ERROR_MESSAGE()
+    RETURN 1 
+END CATCH 

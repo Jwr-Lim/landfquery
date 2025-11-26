@@ -1,0 +1,2 @@
+select TOP 10 *from PD_RESULT A WITH (NOLOCK) 
+WHERE A.DIV_CD = '01' AND A.PLANT_CD = '1130' 

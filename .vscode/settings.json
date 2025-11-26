@@ -1,0 +1,5 @@
+{
+    "editor.minimap.maxColumn": 40,
+    "editor.minimap.autohide": "none",
+    "explorer.openEditors.sortOrder": "fullPath"
+}

@@ -1,0 +1,103 @@
+/* 
+기안번호 : PM250305001 
+기안구분 : 불필 
+제목 : POP 작업장 COMBO 수정 
+일자 : 25.03.05 
+작업자 : 임종원 이사 
+*/ 
+ 
+ALTER PROC [dbo].[USP_BASE_CENTER_INFO](   
+     @DIV_CD           NVARCHAR(10)   
+    ,@PLANT_CD         NVARCHAR(10)    
+    ,@WC_CD            NVARCHAR(10) = ''   
+    ,@LINE_CD          NVARCHAR(10) = ''   
+    ,@GBN              NVARCHAR(2)    
+)   
+AS    
+   
+SET NOCOUNT ON    
+-- 작업장   
+IF @GBN = 'W'   
+BEGIN    
+    SELECT WC_CD AS CODE, WC_NM AS NAME    
+        FROM BA_WORK_CENTER A WITH (NOLOCK)    
+    WHERE A.DIV_CD = @DIV_CD    
+      AND A.PLANT_CD = @PLANT_CD       
+      AND A.USE_YN = 'Y'       
+      AND ISNULL(A.WC_NM,'') <> '' 
+    ORDER BY A.TEMP_NO1   
+END    
+-- 라인   
+IF @GBN = 'L'    
+BEGIN    
+       
+    SELECT LINE_CD AS CODE, LINE_NM AS NAME    
+    FROM BA_LINE A WITH (NOLOCK)    
+    INNER JOIN BA_WORK_CENTER B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD    
+    AND A.WC_CD = B.WC_CD    
+    WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD    
+      AND A.WC_CD = @WC_CD    
+    ORDER BY A.LINE_CD    
+   
+END   
+   
+IF @GBN = 'A'    
+BEGIN    
+    SELECT DISTINCT '' AS CODE, 'ALL' AS NAME FROM BA_LINE A   
+	UNION ALL   
+    SELECT LINE_CD AS CODE, LINE_NM AS NAME    
+    FROM BA_LINE A WITH (NOLOCK)    
+    INNER JOIN BA_WORK_CENTER B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD    
+    AND A.WC_CD = B.WC_CD    
+    WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD    
+      AND A.WC_CD = @WC_CD    
+      AND ISNULL(B.WC_NM,'') <> '' 
+    --ORDER BY A.LINE_CD    
+   
+END   
+ 
+   
+-- 고정   
+IF @GBN = 'P'   
+BEGIN    
+    SELECT B.PROC_CD AS CODE, C.PROC_NM AS NAME     
+    FROM    
+    BA_ROUTING_HEADER A WITH (NOLOCK)    
+    INNER JOIN BA_ROUTING_DETAIL B WITH (NOLOCK) ON    
+    A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ROUT_NO = B.ROUT_NO AND A.WC_CD = B.WC_CD AND A.[VERSION] = B.[VERSION]   
+    INNER JOIN BA_PROC C WITH (NOLOCK) ON B.PROC_CD = C.PROC_CD    
+    WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.WC_CD = @WC_CD AND A.USE_YN = 'Y'   
+    ORDER BY B.PROC_SEQ    
+END    
+-- 설비   
+IF @GBN = 'E'   
+BEGIN    
+    SELECT B.EQP_CD AS CODE, B.EQP_NM AS NAME     
+    FROM    
+    BA_EQP B WITH (NOLOCK)    
+    INNER JOIN POP_EQP_ENO A WITH (NOLOCK) ON A.EQP_CD = B.EQP_CD   
+    WHERE B.DIV_CD = @DIV_CD AND B.PLANT_CD = @PLANT_CD AND B.WC_CD = @WC_CD AND B.USE_YN = 'Y' AND B.LINE_CD = @LINE_CD   
+    GROUP BY B.EQP_CD, B.EQP_NM   
+END    
+   
+-- 창고   
+IF @GBN = 'H'   
+BEGIN   
+	SELECT SL_CD AS CODE, SL_NM AS NAME   
+	FROM BA_STORAGE_LOCATION A WITH (NOLOCK)   
+	WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.TEMP_CD1 = 'Y'   
+END 
+
+
+-- 신규 ABB 사업 관련 추가 25.06.25 LJW
+
+IF @GBN = 'PN' 
+BEGIN 
+
+    SELECT A.PROC_CD AS CODE, B.PROC_NM AS NAME 
+        FROM BA_PROC_MAIN A WITH (NOLOCK) 
+        INNER JOIN BA_PROC B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.PROC_CD = B.PROC_CD 
+    WHERE A.DIV_CD = @DIV_CD AND A.WC_CD = @WC_CD 
+    ORDER BY A.PROC_SEQ 
+
+END 
