@@ -3,6 +3,7 @@
 SELECT *FROM FLEXAPI_NEW.DBO.IFM705_MASTER A
 WHERE A.InboundId_ApiAutoCreate > 3280 
   AND A.[CASE] LIKE '%리본%'
+order by a.InboundId_ApiAutoCreate desc 
 
   SELECT *FROM FLEXAPI_NEW.DBO.IFM705_MASTER A
 WHERE A.InboundId_ApiAutoCreate > 3280 
