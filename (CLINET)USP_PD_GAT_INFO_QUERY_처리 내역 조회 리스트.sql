@@ -4,13 +4,13 @@ MDM 실적 처리 Gathering 프로그램 기본 조회
 ----------------------------------------------------
 작업일자 : 25.09.20 
 작업자 : ljw
-
 */
 
 ALTER PROC USP_PD_GAT_INFO_QUERY(
  @WC_CD          NVARCHAR(10) = '13GA'
 ,@LINE_CD        NVARCHAR(10) = '13G01A'
 ,@PROC_CD        NVARCHAR(10) = 'RI'
+,@EQP_CD         NVARCHAR(50) = ''
 ,@USER_ID        NVARCHAR(15) = 'SCADA'
 )
 AS 
@@ -55,7 +55,7 @@ FROM (
   LEFT JOIN BA_SUB_CD F WITH (NOLOCK) ON E.PROC_SPEC_CD = F.SUB_CD AND F.MAIN_CD = 'P2001'
   WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND 
         A.END_DT IS NULL AND E.EQP_CD IS NOT NULL
-  
+        AND A.EQP_CD LIKE @EQP_CD + '%'
   UNION ALL 
   -- 시작이나 종료
   SELECT A.PD_AUTO_NO, A.AUTO_NO, B.DIV_CD, B.PLANT_CD, A.ORDER_NO, B.REVISION, B.PROC_NO, B.ORDER_TYPE, B.ORDER_FORM, B.ROUT_NO, B.ROUT_VER, 
@@ -74,5 +74,6 @@ FROM (
 
   WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.END_DT IS NULL 
     AND ISNULL(C.MDM_TAG,'') = ''
+    AND A.EQP_CD LIKE @EQP_CD + '%'
 ) AA
 order by aA.PD_auto_no, AA.AUTO_NO,  AA.SEQ 
