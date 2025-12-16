@@ -6,7 +6,7 @@ MDM 실적 처리 Gathering 프로그램 시작,종료 처리 (NONE SPEC)
 작업자 : ljw
 
 */
-ALTER PROC USP_PD_GAT_SPEC_NONE_SAVE(
+alter  PROC USP_PD_GAT_SPEC_NONE_SAVE(
      @PD_AUTO_NO   NVARCHAR(50)
     ,@AUTO_NO      NVARCHAR(50)
     ,@DIV_CD       NVARCHAR(10) 
@@ -42,6 +42,12 @@ ALTER PROC USP_PD_GAT_SPEC_NONE_SAVE(
 AS 
 
 SET NOCOUNT ON 
+
+
+IF OBJECT_ID('tempdb..#MN_SE_TEMP') IS NOT NULL
+DROP TABLE #MN_SE_TEMP;
+
+
 DECLARE @SIL_DT  NVARCHAR(10) 
       ,@STR_DATE NVARCHAR(8)
       ,@RK_DATE  NVARCHAR(10) 
@@ -56,6 +62,7 @@ DECLARE @DEPARTMENT NVARCHAR(100) = ''
 
 DECLARE @LAST_YN NVARCHAR(1) = 'Y' 
        ,@G_CHK   NVARCHAR(1) = 'N' -- GROUP TABLE 체크
+
 BEGIN TRY 
 
 SELECT @ITEM_CD = A.ITEM_CD
@@ -96,7 +103,7 @@ BEGIN
             AND A.EQP_CD = CASE WHEN @MN_S IN ('Y','E') THEN @EQP_CD ELSE A.EQP_CD END 
         )
         BEGIN
-            UPDATE A SET A.SDATE = CAST(@VALUE_STR AS DATETIME) FROM PD_RESULT A 
+            UPDATE A SET A.SDATE = CAST(@VALUE_STR AS DATETIME) FROM PD_RESULT A WITH (NOLOCK)
             WHERE A.DIV_CD =@DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.PROC_NO = @PROC_NO
                 AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND A.ROUT_NO = @ROUT_NO AND A.ROUT_VER =@ROUT_VER
                 AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.S_CHK = @S_CHK AND A.RESULT_SEQ = @RESULT_SEQ
@@ -108,7 +115,7 @@ BEGIN
     BEGIN
         -- 작업 오더에 있는지 확인하고, 
         -- 마스터 설비를 체크하고 BA_EQP 에서 MN_FLAG = 'Y' 인것을 찾자. 일지 정보에서 
-         
+        
         IF EXISTS(
         SELECT *
         FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
@@ -119,16 +126,18 @@ BEGIN
         BEGIN
             -- 작업 시작
             DECLARE @MASTER_EQP NVARCHAR(50) = ''
+            
             IF @MN_S NOT IN ('Y','E')
             BEGIN
                 -- 체분리네 이건 대체 왜이렇게???
                 -- 그렇네 이걸 왜이렇게 했을까? 
-                IF (@PROC_CD = 'SE') 
+                IF (@PROC_CD = 'RB') 
                 BEGIN
                     SET @MASTER_EQP = @EQP_CD
                 END 
                 ELSE 
                 BEGIN
+
                     SELECT DISTINCT @MASTER_EQP = B.EQP_CD
                     FROM PD_ORDER_PROC_SPEC_V2 A WITH (NOLOCK)
                         INNER JOIN BA_EQP B WITH (NOLOCK) ON A.DIV_cD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD
@@ -141,8 +150,8 @@ BEGIN
                         WHERE DIV_CD = @DIV_CD AND PLANT_CD = @PLANT_CD AND ORDER_NO = @ORDEr_NO AND REVISION = @REVISION)
  
                     -- 이거 나중에 없애자. 시브 테스트 때문에 넣어놓음
-
-                    IF @EQP_CD IN ('LFG01A-01B-VS-0501','LFG01A-01B-VS-0502')
+                   -- SELECT @EQP_CD
+                    IF @EQP_CD IN ('LFG01A-01B-VS-0501','LFG01A-01B-VS-0502','LFG01A-02C-VS-0501','LFG01A-02C-VS-0502')
                     BEGIN
                         SET @MASTER_EQP = @EQP_CD
                     END 
@@ -154,6 +163,7 @@ BEGIN
                 SET @MASTER_EQP = @EQP_CD
             END
             
+--            SELECT @MASTER_EQP
             -- 이거 이렇게 넣어도 되는건가? 
             -- 일번 공정은 문제가 없나? 
             IF ISNULL(@ROTATION,0) = 0 BEGIN SET @ROTATION = 1 END 
@@ -164,6 +174,7 @@ BEGIN
             WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL
             ) 
             BEGIN 
+               
                 SET @STR_DATE = CONVERT(NVARCHAR(8), GETDATE(), 112)
                 SET @SIL_DT = DBO.UFNSR_GET_DAYNIGHT(GETDATE(),'T')
                 SET @DAY_FLG = DBO.UFNSR_GET_DAYNIGHT(GETDATE(),'D')
@@ -211,7 +222,7 @@ BEGIN
             ELSE 
             BEGIN
                 SET @ROTATION = (SELECT a.cycle 
-                FROM PD_MDM_RESULT_GROUP a
+                FROM PD_MDM_RESULT_GROUP a WITH (NOLOCK)
                 where a.pd_auto_no = @pd_auto_no and a.proc_cd = @proc_cd )
             END
             -- 이제 어디에 집어넣어야 하는가?
@@ -274,7 +285,7 @@ BEGIN
                         
                     , '', @USER_ID, GETDATE(), @USER_ID, GETDATE(), CONVERT(NVARCHAR(10), GETDATE(), 120),
                     @IN_SEQ, A.GROUP_SPEC_CD
-                FROM PD_ORDER_PROC_SPEC_V2 A
+                FROM PD_ORDER_PROC_SPEC_V2 A WITH (NOLOCK)
                     LEFT JOIN POP_EQP_ENO BB ON BB.DIV_CD = @DIV_CD AND BB.PLANT_CD = @PLANT_CD
                         AND A.EQP_CD = BB.EQP_CD AND BB.PROC_CD = @PROC_CD AND A.PROC_SPEC_CD = BB.PROC_SPEC_CD
 
@@ -318,7 +329,7 @@ BEGIN
         END
 
         -- PD_ITEM_IN 에 INSERT 
-
+/*
         SET @DEPARTMENT = ISNULL((SELECT STUFF(  
         (SELECT ',' + RIGHT(A.REQ_DT,2) + '-' + dbo.LPAD(A.PLAN_SEQ, 3,0) + CASE WHEN ISNULL(A.BATCH_NO,'') = '' THEN '' ELSE '-' + CAST(A.BATCH_NO AS NVARCHAR) END
             FROM PD_USEM A WITH (NOLOCK)
@@ -329,7 +340,7 @@ BEGIN
             GROUP BY A.REQ_DT, A.PLAN_SEQ, A.BATCH_NO
             FOR XML PATH('')),1,1,''  
         )),'')
-
+*/
         -- 일단 배정 정보는 나중에 보자..
 --        IF @DEPARTMENT = '' 
         BEGIN
@@ -349,7 +360,8 @@ BEGIN
 
             -- PD_RESULT_MN_LOT 에 INSERT 를 먼저 진행한다.
             
-            DECLARE @MN_SE_TEMP TABLE (
+--            DECLARE #MN_SE_TEMP TABLE (
+            CREATE TABLE #MN_SE_TEMP (
                  CNT         INT IDENTITY(1,1) 
                 ,DIV_CD      NVARCHAR(10) 
                 ,PLANT_CD    NVARCHAR(10) 
@@ -379,8 +391,11 @@ BEGIN
                 ,LOSS_RATE   NUMERIC(18,3) 
                 
             )
+            CREATE INDEX IX_TEMP_MASTER_LOT ON #MN_SE_TEMP(MASTER_LOT);
+            CREATE INDEX IX_TEMP_USEM_SEQ ON #MN_SE_TEMP(USEM_SEQ);
+            CREATE INDEX IX_TEMP_LOT_NO ON #MN_SE_TEMP(LOT_NO);
 
-            INSERT INTO @MN_SE_TEMP (
+            INSERT INTO #MN_SE_TEMP (
                 DIV_CD,          PLANT_CD,          PROC_NO,          ORDER_NO,            REVISION, 
                 ORDER_TYPE,      ORDER_FORM,        ROUT_NO,          ROUT_VER,            WC_CD, 
                 LINE_CD,         PROC_CD,           RESULT_SEQ,       USEM_SEQ,            ITEM_CD, 
@@ -401,23 +416,24 @@ BEGIN
                 CASE WHEN @MN_S = 'Y' AND @LOSS_CHK = 'Y' THEN 
                 B.PLC_QTY * C.LOSS_RATE / 100 ELSE 
                 B.PLC_QTY END, C.LOSS_RATE
-                FROM PD_RESULT A 
-                INNER JOIN PD_USEM B ON
+                FROM PD_RESULT A WITH (NOLOCK)
+                INNER JOIN PD_USEM B WITH (NOLOCK) ON
                 A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION 
                 AND A.ORDER_TYPE = B.ORDER_TYPE AND A.ORDER_FORM = B.ORDER_FORM AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD 
                 AND A.PROC_CD = B.PROC_CD AND A.RESULT_SEQ = B.RESULT_SEQ AND A.EQP_CD = B.USEM_EQP
-                INNER JOIN V_ITEM C ON B.PLANT_CD = C.PLANT_CD AND B.ITEM_CD = C.ITEM_CD 
+                INNER JOIN V_ITEM C WITH (NOLOCK) ON B.PLANT_CD = C.PLANT_CD AND B.ITEM_CD = C.ITEM_CD 
                 WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDEr_NO AND A.REVISION = @REVISION AND
                 A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND
                 A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND
                 A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_SEQ AND A.EQP_CD = @EQP_CD
                 -- 감량율 확인후에 PD_RESULT 를 재조정한다. 
+         --SELECT *FROM #MN_SE_TEMP       
                 
                 IF @MN_S = 'Y' 
                 BEGIN 
-                    IF EXISTS(SELECT *FROM @MN_SE_TEMP A WHERE A.LOT_NO = A.MASTER_LOT)
+                    IF EXISTS(SELECT *FROM #MN_SE_TEMP A WHERE A.LOT_NO = A.MASTER_LOT)
                     BEGIN 
-                        
+                      
                         DECLARE @MN_LOT_LOOP TABLE (
                             CNT         INT IDENTITY(1,1) 
                             ,DIV_CD      NVARCHAR(10) 
@@ -432,16 +448,14 @@ BEGIN
                         INSERT INTO @MN_LOT_LOOP 
                         (DIV_CD, PLANT_CD, WC_CD, LINE_CD, PROC_CD, MASTER_LOT, USEM_SEQ)
                         SELECT A.DIV_CD, A.PLANT_CD, A.WC_CD, A.LINE_CD, A.PROC_CD, A.MASTER_LOT, A.USEM_SEQ
-                        FROM @MN_SE_TEMP A
-                        WHERE A.LOT_NO = A.MASTER_LOT 
-
-                        --SELECT *FROM @MN_LOT_LOOP
+                        FROM #MN_SE_TEMP A
+                        WHERE A.LOT_NO = A.MASTER_LOT
                         
                         DECLARE @MN_LOT_CNT  INT = 0
                             ,@MN_LOT_TCNT INT = 0
 
                         SET @MN_LOT_TCNT = isnull((SELECT COUNT(*) FROM @MN_LOT_LOOP),0)
-
+                       
                         WHILE @MN_LOT_CNT <> @MN_LOT_TCNT 
                         BEGIN 
                             SET @MN_LOT_CNT = @MN_LOT_CNT + 1 
@@ -454,29 +468,34 @@ BEGIN
 
 --                            SELECT *FROM @MN_LOT_LOOP
 
-                            SET @LOT_SEQ = ISNULL((SELECT TOP 1 A.LOT_SEQ FROM PD_RESULT_MN_LOT A
+                            IF NOT EXISTS(SELECT *FROM PD_RESULT_MN_LOT A WITH (NOLOCK)
                             WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD 
                             AND A.MASTER_LOT = @MASTER_LOT
-                            ORDER BY A.LOT_SEQ
-                            ),0) + 1
-
-                            INSERT INTO PD_RESULT_MN_LOT 
-                            (
-                                DIV_CD, PLANT_CD, WC_CD, LINE_CD, PROC_CD, MASTER_LOT, LOT_SEQ, INSERT_ID, INSERT_DT, UPDATE_ID, UPDATE_DT
                             )
-                            
-                            SELECT 
+                            BEGIN 
+                                SET @LOT_SEQ = ISNULL((SELECT TOP 1 A.LOT_SEQ FROM PD_RESULT_MN_LOT A WITH (NOLOCK) 
+                                WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD 
+                                AND A.MASTER_LOT = @MASTER_LOT
+                                ORDER BY A.LOT_SEQ
+                                ),0) + 1
+
+                                INSERT INTO PD_RESULT_MN_LOT 
+                                (
+                                    DIV_CD, PLANT_CD, WC_CD, LINE_CD, PROC_CD, MASTER_LOT, LOT_SEQ, INSERT_ID, INSERT_DT, UPDATE_ID, UPDATE_DT
+                                )
+
+                                SELECT 
                                 @DIV_CD, @PLANT_CD, @WC_CD, @LINE_CD, @PROC_CD, @MASTER_LOT, @LOT_SEQ, @USER_ID, GETDATE(), @USER_ID, GETDATE()
-                            
+                            END 
                             UPDATE A SET A.LOT_NO = @MASTER_LOT + '-' +  CAST(@LOT_SEQ AS NVARCHAR)
-                                FROM @MN_SE_TEMP A
+                                FROM #MN_SE_TEMP A
                             WHERE A.MASTER_LOT = @MASTER_LOT AND A.USEM_SEQ = @USEM_SEQ 
 
                         END 
                     END 
                 END 
 
-                --SELECT *FROM @MN_SE_TEMP
+                --SELECT *FROM #MN_SE_TEMP
 
                 -- 마지막으로 PD_ITEM_IN 을 만듭니다. 
 
@@ -486,7 +505,7 @@ BEGIN
                 DECLARE @MN_SE_CNT INT = 0
                        ,@MN_SE_TCNT INT = 0 
 
-                SET @MN_SE_TCNT = ISNULL((SELECT COUNT(*) FROM @MN_SE_TEMP),0)
+                SET @MN_SE_TCNT = ISNULL((SELECT COUNT(*) FROM #MN_SE_TEMP),0)
 
                 WHILE @MN_SE_CNT <> @MN_SE_TCNT 
                 BEGIN 
@@ -509,7 +528,7 @@ BEGIN
                     A.ROUT_NO, A.ROUT_VER, A.WC_CD, A.LINE_CD, A.PROC_CD, 'N', A.RESULT_SEQ, A.USEM_SEQ, 
                     A.ITEM_CD, A.LOT_NO, A.SL_CD, A.LOCATION_NO, '*','*',A.SIL_DT, A.DEPARTMENT, @IDX_DT, @IDX_SEQ,
                     A.RESULT_QTY, @USER_ID, GETDATE(), @USER_ID, GETDATE()
-                    FROM @MN_SE_TEMP A WHERE A.CNT = @MN_SE_CNT 
+                    FROM #MN_SE_TEMP A WHERE A.CNT = @MN_SE_CNT 
 
                 END
 
@@ -520,7 +539,7 @@ BEGIN
             -- 그룹안에 있고, 아웃이 아니면? 생성할 필요가 없다. 
 
             
-            IF (SELECT B.OUT_CHK FROM PD_MDM_RESULT_GROUP A 
+            IF (SELECT B.OUT_CHK FROM PD_MDM_RESULT_GROUP A WITH (NOLOCK)
             INNER JOIN PD_ORDER_PROC B ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO 
             AND A.REVISION = B.REVISION AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD AND A.PROC_CD = B.PROC_CD 
             WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION 
@@ -534,22 +553,72 @@ BEGIN
 
                 DECLARE @PD_IN_SEQ INT = 0
 
-                SET @PD_IN_SEQ = ISNULL((SELECT MAX(SEQ) FROM PD_ITEM_IN A
+                SET @PD_IN_SEQ = ISNULL((SELECT MAX(SEQ) FROM PD_ITEM_IN A WITH (NOLOCK)
                 WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION 
                 AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD 
                 AND A.PROC_CD =  CASE WHEN DBO.FN_GET_LAST_PROC(@DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @PROC_CD) = 'Y' THEN '*' ELSE @PROC_CD END 
                 AND A.RESULT_SEQ = @RESULT_SEQ 
                 ),0) + 1
+
+                -- BARCODE 생성 한다. 
+
+                DECLARE @LAST_QTY NUMERIC(18,3) = 0 
+
+                DECLARE @VAL        INT   
+                       ,@MTART      NVARCHAR(20)
+                       ,@BARCODE    NVARCHAR(50) 
+                       ,@PALLET_SEQ INT 
                 
+                SET @SIL_DT = DBO.UFNSR_GET_DAYNIGHT(GETDATE(),'T')
+
+                IF DBO.FN_GET_LAST_PROC(@DIV_CD, @PLANT_CD, @ORDER_NO, @REVISION, @PROC_CD) = 'Y' 
+                BEGIN 
+             
+                EXEC @VAL = XM_BAR_LOT_CREATE_NEW @DIV_CD, @PLANT_CD, 'P', @ITEM_CD, @SIL_DT, @LINE_CD, @USER_ID, @MTART OUT, @BARCODE OUT, @PALLET_SEQ OUT       
+
+                SET @LAST_QTY = ISNULL((SELECT SUM(AA.GOOD_QTY) FROM PD_ITEM_IN AA WITH (NOLOCK)
+                WHERE AA.DIV_CD = @DIV_CD AND AA.PLANT_CD = @PLANT_CD AND AA.ORDER_NO = @ORDER_NO AND AA.REVISION = @REVISION AND 
+                AA.ORDER_TYPE = @ORDER_TYPE AND AA.ORDER_FORM = @ORDER_FORM AND AA.ROUT_NO = @ROUT_NO AND AA.ROUT_VER = @ROUT_VER AND 
+                AA.WC_CD = @WC_CD AND AA.LINE_CD = @LINE_CD AND AA.PROC_CD = '*' AND AA.RESULT_SEQ = @RESULT_SEQ AND AA.DEPARTMENT = @DEPARTMENT
+                AND AA.SEQ <> @PD_IN_SEQ),0) 
+                
+                SELECT @LOT_NO = A.LOT_NO FROM PD_RESULT A WITH (NOLOCK)
+                WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND 
+                    A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND
+                    A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND
+                    A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_SEQ AND A.EQP_CD = @EQP_CD
+
+                     INSERT INTO PALLET_MASTER (                          
+                        DIV_CD,         BARCODE,        BAR_SEQ,        ITEM_CD,        LOT_NO,         BAG_SIZE,        
+                        MOVE_TYPE,      BAR_DT,         INSERT_ID,      INSERT_DT,      UPDATE_ID,      UPDATE_DT,      
+                        ORDER_NO,       ORDER_SEQ,      NSEQ,           CREATE_SYS,     USE_FLAG,       PRINT_CNT, 
+                        LOT_GBN,        ITEM_TYPE,      DT,             SEQ        
+                        --TEMP_CD1,      TEMP_CD2,      TEMP_CD3,      CON_NO,                 
+                                                
+                    )                          
+                    VALUES (                          
+                        @DIV_CD,      @BARCODE,       @PD_IN_SEQ,       @ITEM_CD,      @LOT_NO,         @LAST_QTY,         
+                        
+                        '201',          CONVERT(NVARCHAR(6), CAST(@SIL_DT AS DATETIME), 12),  @USER_ID,      GETDATE(),          @USER_ID,      GETDATE(),                        
+                        @ORDER_NO,      @REVISION,      @RESULT_SEQ,   'POP',          'N',             0,
+                        'P',            @MTART,         @SIL_DT,        @PD_IN_SEQ
+                        --@ZDEDN,         @NSEQ,         @TOTALCNT,      @ZCOTNO,                          
+                                                
+                    )                          
+                END 
+                ELSE 
+                BEGIN
+                    SET @BARCODE = '*'
+                END 
                 INSERT INTO PD_ITEM_IN
-                    (
-                    DIV_CD, PLANT_CD, PROC_NO, ORDER_NO, REVISION,
-                    ORDER_TYPE, ORDER_FORM, ROUT_NO, ROUT_VER, WC_CD,
-                    LINE_CD, PROC_CD, S_CHK, RESULT_SEQ, SEQ,
-                    ITEM_CD, LOT_NO, SL_CD, LOCATION_NO, RACK_CD,
-                    BARCODE, SIL_DT, DEPARTMENT, IDX_DT, IDX_SEQ,
-                    GOOD_QTY, INSERT_ID, INSERT_DT, UPDATE_ID, UPDATE_DT
-                    )
+                (
+                DIV_CD, PLANT_CD, PROC_NO, ORDER_NO, REVISION,
+                ORDER_TYPE, ORDER_FORM, ROUT_NO, ROUT_VER, WC_CD,
+                LINE_CD, PROC_CD, S_CHK, RESULT_SEQ, SEQ,
+                ITEM_CD, LOT_NO, SL_CD, LOCATION_NO, RACK_CD,
+                BARCODE, SIL_DT, DEPARTMENT, IDX_DT, IDX_SEQ,
+                GOOD_QTY, INSERT_ID, INSERT_DT, UPDATE_ID, UPDATE_DT
+                )
 
                 SELECT
                     A.DIV_CD, A.PLANT_CD, A.PROC_NO, A.ORDER_NO, A.REVISION,
@@ -558,11 +627,13 @@ BEGIN
                     CASE WHEN DBO.FN_GET_LAST_PROC(A.DIV_CD, A.PLANT_CD, A.ORDER_NO, A.REVISION, A.PROC_CD) = 'Y' THEN '*' ELSE A.PROC_CD END 
                     , A.S_CHK, A.RESULT_SEQ, @PD_IN_SEQ,
                     A.ITEM_CD, A.LOT_NO, '3000', A.LINE_CD, '*',
-                    '*', A.SIL_DT, @DEPARTMENT, @IDX_DT, @IDX_SEQ,
-                    A.GOOD_QTY, @USER_ID, GETDATE(), @USER_ID, GETDATE()
+                    @BARCODE, A.SIL_DT, @DEPARTMENT, @IDX_DT, @IDX_SEQ,
+                    A.GOOD_QTY
+                    - @LAST_QTY
+                    , @USER_ID, GETDATE(), @USER_ID, GETDATE()
 
-                FROM PD_RESULT A
-                WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDEr_NO AND A.REVISION = @REVISION AND
+                FROM PD_RESULT A WITH (NOLOCK)
+                WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND 
                     A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND
                     A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND
                     A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_SEQ AND A.EQP_CD = @EQP_CD
@@ -573,13 +644,13 @@ BEGIN
 
         SET @LAST_YN = 'Y'
        
-        IF EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A 
+        IF EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A WITH (NOLOCK)
         WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION 
         AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL)
         BEGIN
 
         
-                IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A 
+                IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A WITH (NOLOCK)
                 WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION 
                 AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EDATE IS NULL
                 AND A.CYCLE_SEQ = A.CYCLE)
@@ -593,7 +664,7 @@ BEGIN
         BEGIN 
             -- 이후 PD_RESULT EDATE 에 종료 
             UPDATE A SET A.EDATE = CAST(@VALUE_STR AS DATETIME)
-                FROM PD_RESULT A  
+                FROM PD_RESULT A WITH (NOLOCK)
             WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDEr_NO AND A.REVISION = @REVISION AND
                 A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND
                 A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND
@@ -603,7 +674,7 @@ BEGIN
             -- LOT_SEQ UPDATE 
             -- OUT_CHK
 
-            IF (SELECT A.OUT_CHK FROM PD_ORDER_PROC A
+            IF (SELECT A.OUT_CHK FROM PD_ORDER_PROC A WITH (NOLOCK)
             WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ORDER_NO = @ORDEr_NO AND A.REVISION = @REVISION AND
                 A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND
                 A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD
@@ -626,8 +697,9 @@ BEGIN
                 WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.DT = CONVERT(NVARCHAR(7), CAST(@SIL_DT AS DATETIME), 120)                         
                 AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD                         
                 )                        
-                BEGIN                         
-                    UPDATE A SET A.LOT_SEQ = @SIL_LOT_SEQ, A.ORDER_NO = @ORDER_NO, A.REVISION = @REVISION, A.RESULT_SEQ = @RESULT_SEQ,                        
+                BEGIN    
+                                         
+                    UPDATE A SET A.LOT_SEQ = CASE WHEN ISNULL(@SIL_LOT_SEQ,0) = 0 THEN A.LOT_SEQ ELSE @SIL_LOT_SEQ END , A.ORDER_NO = @ORDER_NO, A.REVISION = @REVISION, A.RESULT_SEQ = @RESULT_SEQ,                        
                     UPDATE_ID = @USER_ID, UPDATE_DT = GETDATE()                        
                         FROM PD_LOT_SEQ A WITH (NOLOCK)                         
                     WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.DT = CONVERT(NVARCHAR(7), CAST(@SIL_DT AS DATETIME), 120)                         
@@ -681,6 +753,7 @@ BEGIN
                 A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_SEQ AND A.EQP_CD = @EQP_CD
             */
             --샘플 정보등록
+            /*
             DECLARE @DC_QC_TYPE		NVARCHAR(15)
 
             IF @PROC_CD = 'PA'
@@ -735,6 +808,7 @@ BEGIN
             AND A.PROC_CD = @PROC_CD
             AND A.QC_LOT_SEQ = @LOT_SEQ
             AND B.IF_REQUEST_YN = 'Y'
+            */
         END 
     END
 
@@ -755,12 +829,12 @@ BEGIN
             A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_SEQ AND A.EQP_CD = @EQP_CD
 
         UPDATE A SET A.EDATE = GETDATE(), A.ITEM_CD = @ITEM_CD, A.LOT_NO = ISNULL(@LOT_NO,'')
-            FROM PD_MDM_RESULT_MASTER A 
+            FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
         WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION AND A.WC_CD = @WC_CD
             AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.RESULT_SEQ = @RESULT_SEQ AND A.EDATE IS NULL
 
         UPDATE A SET A.LOT_NO = @LOT_NO 
-        FROM FlexAPI_NEW.DBO.IFM705_Master A 
+        FROM FlexAPI_NEW.DBO.IFM705_Master A WITH (NOLOCK)
         WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.ORDER_NO = @ORDER_NO AND A.WC_CD = @WC_CD
             AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.PLAN_SEQ = @RESULT_SEQ
 
@@ -774,7 +848,7 @@ END
 
 -- 그룹공정 체크후 다 완료 되었으면 마무리 한다.
 
-IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A
+IF NOT EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP A WITH (NOLOCK)
 INNER JOIN PD_RESULT B ON A.DIV_CD = B.DIV_CD AND A.PLANT_CD = B.PLANT_CD AND A.ORDER_NO = B.ORDER_NO AND A.REVISION = B.REVISION 
 AND A.WC_CD = B.WC_CD AND A.LINE_CD = B.LINE_CD AND A.PROC_CD = B.PROC_CD AND A.RESULT_SEQ = B.RESULT_SEQ AND B.EDATE IS NULL
 WHERE A.PD_AUTO_NO = @PD_AUTO_NO)
@@ -786,14 +860,14 @@ BEGIN
 
 END
 
-UPDATE A SET A.END_DT = GETDATE() FROM PD_MDM_RESULT_PROC_SPEC A
+UPDATE A SET A.END_DT = GETDATE() FROM PD_MDM_RESULT_PROC_SPEC A WITH (NOLOCK)
 WHERE A.PD_AUTO_NO = @PD_AUTO_NO AND A.SEQ = @SEq AND A.ORDER_NO = @ORDER_NO AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = @EQP_CD
     AND A.TAG_ID = @TAG_ID AND A.SEQ = @SEQ AND A.VALUE_STEP = @VALUE_STEP
     AND A.END_DT IS NULL
 
 -- 화면 업데이트를 위함.
 UPDATE A SET A.DEL_FLG = 'Y'
-FROM PD_RESULT A 
+FROM PD_RESULT A WITH (NOLOCK) 
 WHERE A.DIV_CD = @DIV_CD AND A.REVISION = @REVISION AND A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION
     AND A.ORDER_TYPE = @ORDER_TYPE AND A.ORDER_FORM = @ORDER_FORM AND A.ROUT_NO = @ROUT_NO AND A.ROUT_VER = @ROUT_VER
     AND A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.RESULT_SEQ = @RESULT_SEQ

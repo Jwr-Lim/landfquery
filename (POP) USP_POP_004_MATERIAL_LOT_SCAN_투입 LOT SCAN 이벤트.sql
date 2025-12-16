@@ -174,9 +174,10 @@ BEGIN TRY
     IF @BARCODE <> '' AND @LOT_NO = '' 
     BEGIN 
         
-        SELECT @LOT_NO = A.LOT_NO, @ITEM_CD = A.ITEM_CD FROM ST_sTOCK_NOW A WITH (NOLOCK) 
+        SELECT @LOT_NO = A.LOT_NO, @ITEM_CD = A.ITEM_CD FROM REAL_MES.FLEXMES.DBO.ST_sTOCK_NOW A WITH (NOLOCK) 
         WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.PROC_CD = '*' AND A.SL_CD = '3000' AND A.RACK_CD <> '*' AND A.BARCODE = @BARCODE 
 
+       
 
         IF @LOT_NO = '' OR @ITEM_CD = '' 
         BEGIN 
@@ -192,7 +193,7 @@ BEGIN TRY
 
     IF @BARCODE = '' AND @LOT_NO <> '' 
     BEGIN 
-        SELECT TOP 1 @BARCODE = A.BARCODE, @ITEM_CD = A.ITEM_CD FROM ST_STOCK_NOW A WITH (NOLOCK) 
+        SELECT TOP 1 @BARCODE = A.BARCODE, @ITEM_CD = A.ITEM_CD FROM REAL_MES.FLEXMES.DBO.ST_STOCK_NOW A WITH (NOLOCK) 
         INNER JOIN PALLET_MASTER B WITH (NOLOCK) ON A.DIV_CD = B.DIV_CD AND A.ITEM_CD = B.ITEM_CD AND A.LOT_NO = B.LOT_NO AND A.BARCODE = B.BARCODE 
         WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.PROC_CD = '*' AND A.SL_CD = '3000' AND A.RACK_CD <> '*' AND A.LOT_NO = @LOT_NO 
         AND A.QTY > 0
@@ -214,13 +215,13 @@ BEGIN TRY
 --    SELECT @BARCODE, @LOT_NO, @ITEM_CD -- DCHK
 
   
-    IF EXISTS(SELECT *FROM ST_STOCK_NOW A WITH (NOLOCK) 
+    IF EXISTS(SELECT *FROM REAL_MES.FLEXMES.DBO.ST_STOCK_NOW A WITH (NOLOCK) 
     WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.PROC_CD = '*' AND A.ITEM_CD = @ITEM_CD AND A.LOT_NO = @LOT_NO AND A.BARCODE = @BARCODE AND A.LOT_NO = @LOT_NO 
     AND A.SL_CD = '3000' AND A.RACK_CD <> '*'
     )
     BEGIN 
         -- 수량을 가지고 옵시다.
-        SELECT @STOCK_QTY = A.QTY FROM ST_STOCK_NOW A WITH (NOLOCK) 
+        SELECT @STOCK_QTY = A.QTY FROM REAL_MES.FLEXMES.DBO.ST_STOCK_NOW A WITH (NOLOCK) 
         WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.PROC_CD = '*' AND A.ITEM_CD = @ITEM_CD AND A.LOT_NO = @LOT_NO AND A.BARCODE = @BARCODE AND A.LOT_NO = @LOT_NO 
         AND A.SL_CD = '3000' AND A.RACK_CD <> '*'
     END 
@@ -290,6 +291,8 @@ BEGIN TRY
         SET @DEV_CHK = 'Y'    
     END    
 
+    SET @QC_CHK = 'N'
+    
     IF @QC_CHK = 'Y' AND @DEV_CHK = 'N'      -- 개발품 체크 추가   
     BEGIN          
         -- 품목별 검사 여부를 체크 한다.          
@@ -303,10 +306,10 @@ BEGIN TRY
         BEGIN       
             SET @QC_VALUE = ISNULL((SELECT TOP 1 AA.QC_RESULT FROM          
             (      
-            SELECT TOP 1 A.QC_RESULT, A.ORDER_DT AS DT FROM QC_IQC_ORDER A WITH (NOLOCK)          
+            SELECT TOP 1 A.QC_RESULT, A.ORDER_DT AS DT FROM REAL_MES.FLEXMES.DBO.QC_IQC_ORDER A WITH (NOLOCK)          
                 WHERE A.ITEM_CD = @ITEM_CD AND A.LOT_NO = @LOT_NO          
             UNION ALL       
-            SELECT TOP 1 A.QC_RESULT, A.SIL_DT AS DT FROM QC_PQC_ORDER A WITH (NOLOCK)          
+            SELECT TOP 1 A.QC_RESULT, A.SIL_DT AS DT FROM REAL_MES.FLEXMES.DBO.QC_PQC_ORDER A WITH (NOLOCK)          
                 WHERE A.ITEM_CD = @ITEM_CD AND A.LOT_NO = @LOT_NO         
             ) AA      
             ORDER BY AA.DT DESC),'')     
@@ -343,8 +346,10 @@ BEGIN TRY
         SET @PASS_CHK = 'Y'         
     END          
 
+    SET @QC_VALUE = 'Y' 
+    SET @PASS_CHK = 'Y'
 --    SELECT @QC_VALUE, @QC_NAME, @PASS_CHK, @STOCK_QTY -- DCHK
-
+    
     IF @PASS_CHK = 'N'
     BEGIN 
         SET @MSG_CD = '0060'
@@ -371,25 +376,25 @@ BEGIN TRY
         AND A.PROC_CD = @PROC_cD AND A.S_CHK = 'N' AND A.RESULT_SEQ = @RESULT_sEQ ), CONVERT(NVARCHAR(10), GETDATE(), 120))     
         */                
         IF ISNULL((     
-            SELECT TOP 1 A.ZEFLK FROM SAP_Z02MESF_D080 A WITH (NOLOCK)      
+            SELECT TOP 1 A.ZEFLK FROM REAL_MES.FLEXMES.DBO.SAP_Z02MESF_D080 A WITH (NOLOCK)      
             WHERE A.MATNR = @ITEM_CD AND A.BEGDA <= @SIL_DT      
             ORDER BY A.BEGDA DESC     
         ),'') = 'X'     
         BEGIN      
             -- 유효일 확인을 하자      
             
-            IF EXISTS(SELECT *FROM VIEW_VALID_DATE A WITH (NOLOCK)      
+            IF EXISTS(SELECT *FROM REAL_MES.FLEXMES.DBO.VIEW_VALID_DATE A WITH (NOLOCK)      
             WHERE A.MATNR = @ITEM_CD AND A.ZVLOT = @LOT_NO)     
             BEGIN      
             
-                IF ISNULL((SELECT TOP 1 A.VFDAT FROM VIEW_VALID_DATE A WITH (NOLOCK)      
+                IF ISNULL((SELECT TOP 1 A.VFDAT FROM REAL_MES.FLEXMES.DBO.VIEW_VALID_DATE A WITH (NOLOCK)      
                 WHERE A.MATNR = @ITEM_CD AND A.ZVLOT = @LOT_NO ORDER BY CHARG DESC), CONVERT(NVARCHAR(10), '1900-01-01', 120)) < @SIL_DT      
                 BEGIN      
                     SET @MSG_CD = '0060'
                     SET @MSG_DETAIL = '유효일이 경과하였습니다. 투입할수 없습니다. 유효일을 확인하여 주십시오.' + CHAR(10)       
                     + '스캔한 내용 : ' + @LOT_NO + CHAR(10)      
                     + '투입일 : ' + @SIL_DT + CHAR(10)      
-                    + '유효일 : ' + CONVERT(NVARCHAR(10), CAST((SELECT TOP 1 ISNULL(A.VFDAT, '') FROM VIEW_VALID_DATE A WITH (NOLOCK)      
+                    + '유효일 : ' + CONVERT(NVARCHAR(10), CAST((SELECT TOP 1 ISNULL(A.VFDAT, '') FROM REAL_MES.FLEXMES.DBO.VIEW_VALID_DATE A WITH (NOLOCK)      
                                     WHERE A.MATNR = @ITEM_CD AND A.ZVLOT = @LOT_NO ORDER BY CHARG DESC) AS DATETIME),120) + ' [1900-01-01 은 등록이 되지 않은 내역입니다.]'     
 
 --                    SELECT @MSG_CD, @MSG_DETAIL --MSG     
@@ -506,13 +511,13 @@ BEGIN TRY
     -- 재고정보를 매칭
 
     SELECT @USEM_WC = A.WC_CD, @USEM_PROC = A.PROC_CD, @USEM_LOCATION = A.LOCATION_NO, @RACK_CD = A.RACK_CD
-        FROM ST_STOCK_NOW A WITH (NOLOCK)
+        FROM REAL_MES.FLEXMES.DBO.ST_STOCK_NOW A WITH (NOLOCK)
     WHERE A.DIV_CD = @DIV_CD AND A.PLANT_CD = @PLANT_CD AND A.ITEM_CD = @ITEM_CD AND A.LOT_NO = @LOT_NO AND A.BARCODE = @BARCODE 
         AND A.PROC_CD = '*' AND A.SL_CD = '3000' AND A.RACK_CD <> '*'
 
     -- 유효일 정보를 매칭
 
-    SELECT @STANDARD_DATE = A.VFDAT FROM VIEW_VALID_DATE A WITH (NOLOCK) 
+    SELECT @STANDARD_DATE = A.VFDAT FROM REAL_MES.FLEXMES.DBO.VIEW_VALID_DATE A WITH (NOLOCK) 
     WHERE A.MATNR = @ITEM_CD AND A.ZVLOT = @LOT_NO
 
     

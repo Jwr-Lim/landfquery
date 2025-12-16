@@ -74,7 +74,22 @@ SET @STR_DATE = CONVERT(NVARCHAR(8), GETDATE(), 112)
 SET @CASE = (SELECT [CASE]
 FROM #IFM705_MASTER)
 
+-- 2중 작업이 필요하면? 
+-- 해당 기준정보를 일단 가지고 온다. 
+
+DECLARE @SV_CNT  INT = 0 
+       ,@WET_CNT INT = 0
+
+--WEI_SV_CNT , WEI_CNT
+
+SELECT @SV_CNT = ISNULL(WEI_SV_CNT,0), @WET_CNT = ISNULL(WEI_CNT,0) 
+FROM #IFM705_MASTER 
+
+-- 다시 업데이트를 진행한다. 
+
 --SELECT *FROM #IFM705_MASTER -- CHK
+
+--RETURN 
 
 IF @CASE LIKE '%원료투입 시작' OR @CASE LIKE '%원료투입 종료'
 BEGIN
@@ -92,7 +107,6 @@ BEGIN
         INNER JOIN PD_MDM_BASE_CODE C ON B.[CASE] = C.MCASE
         INNER JOIN PD_ORDER D ON A.ORDER_NO = D.ORDER_NO
     ORDER BY C.SEQ
-
    
     UPDATE A SET A.DIV_CD = C.DIV_CD, A.PLANT_CD = C.PLANT_CD, A.PD_AUTO_NO = B.PD_AUTO_NO, A.AUTO_NO = B.AUTO_NO, A.ORDER_NO = B.ORDER_NO, A.WC_CD = B.WC_CD, A.PLAN_SEQ = B.RESULT_SEQ, A.LOT_NO = B.LOT_NO
         from FlexAPI_NEW.dbo.ifm705_master A 
@@ -144,11 +158,13 @@ BEGIN
         
         IF EXISTS(SELECT *FROM PD_MDM_RESULT_GROUP WHERE WC_CD = @WC_CD AND LINE_CD = @LINE_CD AND PROC_CD = @PROC_CD AND EDATE IS NULL AND BE_EQP_CD IS NULL)
         BEGIN
+
             SET @TP = ISNULL((SELECT A.TP FROM BA_EQP A WITH (NOLOCK) 
             WHERE A.EQP_CD = @EQP_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD),'') 
-
+            
             IF @TP <> '' 
             BEGIN 
+
                 -- 일단 이전 공정 순서를 찾고 난다음 재공 설비 코드를 확인한다. 
                 SET @BE_EQP_CD = ISNULL((SELECT TOP 1 E.EQP_CD
                 FROM PD_MDM_RESULT_GROUP A 
@@ -183,10 +199,10 @@ BEGIN
             
             INSERT PD_MDM_RESULT_MASTER
             (
-            PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
-            RESULT_SEQ,
-            EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
-            UPDATE_ID, UPDATE_DT
+                PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
+                RESULT_SEQ,
+                EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
+                UPDATE_ID, UPDATE_DT
             )
             
             SELECT A.PD_AUTO_NO, @AUTO_NO, A.ORDER_NO, A.REVISION, B.PROC_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, 
@@ -223,7 +239,6 @@ BEGIN
         AND A.EDATE IS NULL 
     )
     BEGIN
-
         IF NOT EXISTS(SELECT *
         FROM PD_MDM_RESULT_MASTER A WITH (NOLOCK)
         WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD = @EQP_CD
@@ -236,13 +251,15 @@ BEGIN
             (
             PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
             RESULT_SEQ,
-            EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
-            UPDATE_ID, UPDATE_DT
+            EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT, 
+            UPDATE_ID, UPDATE_DT,
+            SV_CNT, WET_CNT
             )
             SELECT TOP 1 
             A.PD_AUTO_NO, @AUTO_NO, A.ORDER_NO, A.REVISION, A.PROC_NO, A.WC_CD, A.LINE_CD, A.PROC_CD, A.RESULT_SEQ,
             @EQP_CD, '', '', GETDATE(), NULL, 'ADMIN', GETDATE(),
-            'ADMIN', GETDATE()
+            'ADMIN', GETDATE(),
+            @SV_CNT, @WET_CNT 
             FROM PD_MDM_RESULT_MASTER A
             WHERE A.WC_CD = @WC_CD AND A.LINE_CD = @LINE_CD AND A.PROC_CD = @PROC_CD AND A.EQP_CD <> @EQP_CD AND A.EDATE IS NULL 
 
@@ -324,7 +341,7 @@ BEGIN
     END 
     ELSE 
     BEGIN
-        
+
         EXEC USP_CM_AUTO_NUMBERING 'MD', @STR_DATE, 'admin', @AUTO_NO OUT
 
         -- RK 165
@@ -340,14 +357,15 @@ BEGIN
             SET @WET = 3000
         END
 
+        print 'order match param : ' + @wc_cd + ',' + @line_cd + ',' + @proc_cd + ',' + @eqp_cd
+
         DECLARE @O_VALUE INT = 0
         EXEC @O_VALUE = USP_MDM_WORK_ORDER_CREATE 
         @DIV_CD = '01', @PLANT_CD = '1130', @WC_CD = @WC_CD, @LINE_CD = @LINE_CD, @PROC_CD = @PROC_CD,
         @EQP_CD = @EQP_CD, @VALUE = @WET, @ORDER_NO = @ORDER_NO OUTPUT, @REVISION = @REVISION OUTPUT, 
         @RESULT_SEQ = @RESULT_SEQ OUTPUT
 
-        print 'order match param : ' + @wc_cd + ',' + @line_cd + ',' + @proc_cd + ',' + @eqp_cd
-
+        
 --        select @o_value 
         IF @O_VALUE = 1 
         BEGIN
@@ -360,7 +378,7 @@ BEGIN
         --SELECT @AUTO_NO, @ORDER_NO, @WC_CD, @PROC_CD, @RESULT_SEQ, @LOT_NO
         DECLARE @PROC_NO NVARCHAR(50) = ''
 
-        SELECT @PROC_NO = A.PROC_NO
+        SELECT @PROC_NO = A.PROC_NO, @ITEM_CD = A.ITEM_CD
         FROM PD_ORDER A WITH (NOLOCK)
         WHERE A.ORDER_NO = @ORDER_NO AND A.REVISION = @REVISION
 
@@ -373,19 +391,23 @@ BEGIN
         PD_AUTO_NO, AUTO_NO, ORDER_NO, REVISION, PROC_NO, WC_CD, LINE_CD, PROC_CD,
         RESULT_SEQ,
         EQP_CD, ITEM_CD, LOT_NO, SDATE, EDATE, INSERT_ID, INSERT_DT,
-        UPDATE_ID, UPDATE_DT
+        UPDATE_ID, UPDATE_DT,
+        SV_CNT, WET_CNT
         )
         SELECT
             @PD_AUTO_NO, @AUTO_NO, @ORDER_NO, @REVISION, @PROC_NO, @WC_CD, @LINE_CD, @PROC_CD,
             @RESULT_SEQ,
-            @EQP_CD, '', '', GETDATE(), NULL, 'admin', GETDATE(),
-            'admin', GETDATE()
+            @EQP_CD, @ITEM_CD, '', GETDATE(), NULL, 'admin', GETDATE(),
+            'admin', GETDATE(),
+            @SV_CNT, @WET_CNT
 
     END
 
+
 --        SELECT @AUTO_NO, @ORDER_NO, @WC_CD, @PROC_CD, @RESULT_SEQ, @LOT_NO
 
-    UPDATE A SET A.DIV_CD = B.DIV_CD, A.PLANT_CD = B.PLANT_CD, A.PD_AUTO_NO = @PD_AUTO_NO, A.AUTO_NO = @AUTO_NO, A.ORDER_NO = @ORDER_NO, A.WC_CD = @WC_CD, A.PLAN_SEQ = @RESULT_SEQ, A.LOT_NO = @LOT_NO 
+    UPDATE A SET A.DIV_CD = B.DIV_CD, A.PLANT_CD = B.PLANT_CD, 
+    A.PD_AUTO_NO = @PD_AUTO_NO, A.AUTO_NO = @AUTO_NO, A.ORDER_NO = @ORDER_NO, A.WC_CD = @WC_CD, A.PLAN_SEQ = @RESULT_SEQ, A.LOT_NO = @LOT_NO 
         from FlexAPI_NEW.dbo.ifm705_master A 
         INNER JOIN PD_ORDER B ON 1=1 AND B.ORDER_NO = @ORDER_NO
     WHERE InboundId_ApiAutoCreate = @INBOUNDID
@@ -401,6 +423,7 @@ BEGIN
     
 --    select @group_s, @group_e, @out_chk 
 
+    
     INSERT INTO #MDM_LOOP_TABLE
     SELECT D.DIV_CD, D.PLANT_CD, @PD_AUTO_NO, @AUTO_NO, C.SEQ, @ORDER_NO, @WC_CD, @LINE_CD, @PROC_CD, A.EQP_CD, C.MCASE, C.CODE, C.CODE_NM, C.FLAG, C.COL_CHK,
         CAST('' AS NVARCHAR(1000)) AS TAG_ID,
@@ -465,6 +488,7 @@ END
 --SELECT *FROM #MDM_LOOP_TABLE 
 
   -- 기존 테이블에 업데이트 진행 예정 
+
 
 SELECT @TCNT = COUNT(*)
 FROM #MDM_LOOP_TABLE A WITH (NOLOCK)
@@ -542,5 +566,6 @@ END TRY
 BEGIN CATCH 
     SET @MSG_CD = 9999
     SET @MSG_DETAIL = ERROR_MESSAGE()
+    
     RETURN 1 
 END CATCH 

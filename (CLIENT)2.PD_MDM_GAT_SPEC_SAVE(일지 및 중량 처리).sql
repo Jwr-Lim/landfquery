@@ -483,7 +483,7 @@ BEGIN
                                         EXISTS (SELECT 1 FROM @EQP_TBL)
                                         AND A.DEPARTMENT IN (SELECT EQP_CD FROM @EQP_TBL)
                                     )
-                                    AND A.ORDER_NO <> 'PD250113003'
+                                    AND A.ORDER_NO NOT IN ('PD250113003','PD250113004')
                         ) AA
                         WHERE AA.QTY > 0
                     ) AAA

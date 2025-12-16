@@ -192,7 +192,7 @@ BEGIN TRY
     SET @RK_DATE = CONVERT(NVARCHAR(10), CAST(@SDATE AS DATETIME), 120)
     SET @SIL_DT = dbo.UFNSR_GET_DAYNIGHT(CAST(@SDATE AS DATETIME),'T')
     SET @DAY_FLG = dbo.UFNSR_GET_DAYNIGHT(CAST(@SDATE AS DATETIME),'D') 
-    
+
     INSERT INTO PD_RESULT 
     (
         DIV_CD,            PLANT_CD,             PROC_NO,                ORDER_NO,                REVISION,      
@@ -212,6 +212,7 @@ BEGIN TRY
         @DAY_FLG,          'N',                  0,                      '%',                     @EQP_CD,
         @USER_ID,          GETDATE(),            @USER_ID,               GETDATE(),               ''
     
+
     --3. PD_USEM 이관
     INSERT INTO PD_USEM 
     (
@@ -310,6 +311,7 @@ BEGIN TRY
             @IN_SEQ,            @ORDER_NO,         @REVISION,          @RESULT_SEQ,         'N',         
             @CYCLE_SEQ,         @USER_ID,          GETDATE(),          @USER_ID,            GETDATE()           
            
+
         INSERT INTO PD_RESULT_PROC_SPEC_VALUE (           
             DIV_CD,              PLANT_CD,             ORDER_NO,              REVISION,              ORDER_TYPE,             ORDER_FORM,            
             ROUT_NO,             ROUT_VER,             WC_CD,                 LINE_CD,               PROC_CD,                S_CHK,           RESULT_SEQ,            
@@ -346,6 +348,7 @@ BEGIN TRY
             WHERE DIV_CD = @DIV_CD AND PLANT_CD = @PLANT_CD AND ORDER_NO = @ORDEr_NO AND REVISION = @REVISION)
  
     END 
+
 
     -- MDM Interface 에 데이터를 집어 넣는다. 
 
